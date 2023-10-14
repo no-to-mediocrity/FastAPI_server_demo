@@ -88,8 +88,8 @@ curl --location 'http://localhost:8000/v1/upload/' \
  
 Пример запроса:
 ```curl
- curl --location --request GET 'http://localhost:8000/v1/generate_image/' \
---form 'file=@"/Users/user/python/src/FastAPI_server/example.xlsx"'
+curl --location --request GET 'http://localhost:8000/v1/generate_image/' \
+--output '/Users/user/python/src/FastAPI_server/output.png'
   ```
 
 Возвращается изображение с графиком в формате PNG.
