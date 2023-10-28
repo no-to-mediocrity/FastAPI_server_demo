@@ -1,18 +1,19 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 import uvicorn
-import utils.postgres as postgres
+import utils.repository as repository
 import os
 import utils.values as values
+from utils.database_singleton import db
 
 app = FastAPI()
-engine = postgres.init_db()
 
 upload_dir = os.getenv('UPLOAD_DIR')
 plot_dir = os.getenv('PLOT_DIR')
 server_host = os.getenv('SERVER_HOST')
 port_string = os.getenv('SERVER_PORT')
 port_string.lstrip('0')
+
 if port_string == "":
     server_port = 0
 else: 
@@ -36,7 +37,7 @@ def is_excel_file(filename: str) -> bool:
     allowed_extensions = {".xls", ".xlsx", ".xlsm"}
     return any(filename.lower().endswith(ext) for ext in allowed_extensions)
 
-def generate_unique_filename(file_extension, original_filename):
+def generate_unique_filename(file_extension:str, original_filename:str) -> str:
     """
     Генерирует уникальное имя файла на основе расширения и оригинального имени файла.
 
@@ -73,7 +74,7 @@ async def upload_file(file: UploadFile):
 
     with open(file_path, "wb") as f:
         f.write(file.file.read())
-    exceptions = postgres.process_excel(file_path, engine)
+    exceptions = await repository.process_excel(file_path)
     if exceptions == []:
         return {"message": f"Файл Excel '{file.filename}' успешно загружен и обработан."}
     else: 
@@ -88,16 +89,13 @@ async def generate_image():
      
     Изображение с графиком по данным из БД в формате .PNG или сообщение об ошибке.
     """
-
     try:
-        df = postgres.db_to_df(engine)
-        if df is None:
-            raise HTTPException(status_code=500, detail="Произошла ошибка при получении данных из базы данных.")
-
-        plot_filename = postgres.plot_data(df, plot_dir)
-        if not plot_filename:
-            raise HTTPException(status_code=500, detail="Произошла ошибка при построении графика данных.")
-
+        df, err = await repository.db_to_df()
+        if err:
+             raise HTTPException(status_code=500, detail="Произошла ошибка при получении данных из базы данных: {err}")
+        plot_filename, err = await repository.plot_data(df, plot_dir)
+        if err:
+            raise HTTPException(status_code=500, detail="Произошла ошибка при построении графика данных: {err}")
         if not os.path.exists(plot_filename):
             raise HTTPException(status_code=404, detail="Файл с графиком не найден.")
 
@@ -105,6 +103,15 @@ async def generate_image():
 
     except HTTPException as e:
        return {"message": e}
+
+@app.on_event("startup")
+async def startup():
+    err = await db.init()
+    if err:
+        print("\033[32mINFO\033[0m:     The PostgreSQL database has been initialized.")
+        return()
+    await db.check_connection()
+    print("\033[32mINFO\033[0m:     The PostgreSQL database has been initialized.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host=server_host, port=server_port)
